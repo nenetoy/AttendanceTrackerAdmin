@@ -140,6 +140,7 @@ th{background:#101827;color:#94a3b8;font-size:10px;text-transform:uppercase;lett
     <div class="topActions">
       <span class="syncPill" id="syncStatus">Connecting…</span>
       <button class="btn" id="editEmployeeBtn" disabled>✎ Edit Employee</button>
+      <button class="btn danger" id="deleteEmployeeBtn" disabled>🗑 Delete Employee</button>
       <button class="btn danger" id="logoutBtn">Logout</button>
     </div>
   </div>
@@ -246,7 +247,7 @@ import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import {
-  getFirestore, collection, getDocs, doc, getDoc, updateDoc
+  getFirestore, collection, getDocs, doc, getDoc, updateDoc, deleteDoc
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
 const firebaseConfig = {"apiKey": "AIzaSyDduEjD_JoDprJIO375gWSzR4iY6LpTonU", "authDomain": "traxer-650ff.firebaseapp.com", "projectId": "traxer-650ff", "storageBucket": "traxer-650ff.firebasestorage.app", "messagingSenderId": "666299472568", "appId": "1:666299472568:web:324464e3016d49ec5d324d", "measurementId": "G-39PFKTS7TT"};
@@ -332,6 +333,7 @@ async function loadEmployees() {
     selectedUid=docs[0].id;
     select.value=selectedUid;
     $("editEmployeeBtn").disabled=false;
+    $("deleteEmployeeBtn").disabled=false;
     await renderSelectedEmployee();
     setSync("Synced ✓");
   } catch(err) {
@@ -348,6 +350,7 @@ function clearEmployee() {
   $("employeeRole").textContent="—";
   $("employeeId").textContent="Employee ID: —";
   $("editEmployeeBtn").disabled=true;
+  $("deleteEmployeeBtn").disabled=true;
   resetTotals();
   $("recordsBody").innerHTML='<tr><td colspan="12" class="empty">No registered employees yet.</td></tr>';
 }
@@ -456,6 +459,54 @@ $("loginBtn").addEventListener("click",async()=>{
     $("loginMessage").textContent="Login failed. Check your email and password.";
   } finally {
     $("loginBtn").disabled=false;
+  }
+});
+
+
+$("deleteEmployeeBtn").addEventListener("click",async()=>{
+  if(!selectedUid)return;
+
+  const employee=employees.get(selectedUid);
+  if(!employee)return;
+
+  const displayName=employee.name||"this employee";
+  const ok=confirm(
+    `Delete ${displayName}?\n\n` +
+    `This will permanently delete the employee profile and ALL attendance records from the server.\n\n` +
+    `This cannot be undone.`
+  );
+  if(!ok)return;
+
+  // Extra confirmation to reduce accidental deletion.
+  const ok2=confirm(`Final confirmation: permanently delete ${displayName}?`);
+  if(!ok2)return;
+
+  const btn=$("deleteEmployeeBtn");
+  btn.disabled=true;
+  $("editEmployeeBtn").disabled=true;
+  setSync("Deleting employee…");
+
+  try{
+    // Firestore does not automatically delete subcollections,
+    // so delete attendance documents first.
+    const attendanceSnap=await getDocs(collection(db,"employees",selectedUid,"attendance"));
+    for(const rec of attendanceSnap.docs){
+      await deleteDoc(doc(db,"employees",selectedUid,"attendance",rec.id));
+    }
+
+    // Then delete the employee profile document.
+    await deleteDoc(doc(db,"employees",selectedUid));
+
+    employees.delete(selectedUid);
+    selectedUid="";
+    await loadEmployees();
+    setSync("Employee deleted ✓");
+  }catch(err){
+    console.error(err);
+    setSync("Delete failed",true);
+    alert("Unable to delete employee. Please check your connection and Firestore permissions.");
+    btn.disabled=false;
+    $("editEmployeeBtn").disabled=false;
   }
 });
 
