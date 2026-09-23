@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Attendance Tracker Admin</title>
+<style>
+:root{
+  --bg:#08111f;--panel:#0f172a;--panel2:#111827;--line:rgba(148,163,184,.15);
+  --text:#f8fafc;--muted:#94a3b8;--blue:#2563eb;--green:#22c55e;
+  --amber:#f59e0b;--red:#ef4444;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  background:linear-gradient(180deg,#08111f,#0b1220);color:var(--text);min-height:100vh;
+}
+.main{max-width:1500px;margin:auto;padding:22px}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.brandLogo{
+  width:50px;height:50px;border-radius:15px;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(145deg,#2563eb,#1d4ed8);font-weight:900;font-size:20px
+}
+.brandTitle{font-size:20px;font-weight:900}
+.brandSub{font-size:11px;color:var(--muted);margin-top:3px}
+.topbar{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:16px}
+.pageTitle{font-size:27px;font-weight:900;letter-spacing:-.4px}
+.pageSub{font-size:13px;color:var(--muted);margin-top:5px}
+.topActions{display:flex;gap:8px;flex-wrap:wrap}
+button,select,input{font:inherit}
+.btn{
+  padding:10px 12px;border-radius:11px;border:1px solid var(--line);
+  background:#0f172a;color:#e2e8f0;cursor:pointer;min-height:42px
+}
+.btn.primary{background:#2563eb;border-color:#2563eb;color:#fff;font-weight:800}
+.btn.danger{color:#fca5a5}
+.syncPill{
+  display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;
+  border:1px solid rgba(34,197,94,.18);background:rgba(34,197,94,.10);
+  color:#86efac;font-size:11px;font-weight:800
+}
+.syncPill.offline{border-color:rgba(245,158,11,.2);background:rgba(245,158,11,.1);color:#fbbf24}
+.selectorBar{display:grid;grid-template-columns:minmax(220px,1.3fr) minmax(180px,.7fr);gap:10px;margin-bottom:16px}
+.selectGroup{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 12px}
+.label{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-bottom:6px}
+select,input{
+  width:100%;background:#0b1220;color:#f8fafc;border:1px solid var(--line);
+  border-radius:10px;padding:11px 12px;outline:none
+}
+.overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.card{
+  background:linear-gradient(180deg,rgba(17,24,39,.98),rgba(15,23,42,.98));
+  border:1px solid var(--line);border-radius:16px;padding:16px
+}
+.metricLabel{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.metricValue{font-size:27px;font-weight:900;margin-top:8px}
+.metricHint{font-size:10px;color:#64748b;margin-top:5px}
+.employeeHeader{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.employeeLeft{display:flex;align-items:center;gap:12px;min-width:0}
+.avatar{
+  width:54px;height:54px;flex:0 0 auto;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(145deg,#2563eb,#1d4ed8);font-weight:900
+}
+.employeeName{font-size:19px;font-weight:900;overflow-wrap:anywhere}
+.employeeRole{font-size:12px;color:var(--muted);margin-top:3px}
+.employeeId{font-size:11px;color:#64748b;margin-top:3px}
+.tableWrap{overflow:auto;border:1px solid var(--line);border-radius:14px}
+table{width:100%;border-collapse:collapse;min-width:1100px;background:#0b1220}
+th,td{padding:11px 10px;border-bottom:1px solid rgba(148,163,184,.10);font-size:12px;white-space:nowrap;text-align:left}
+th{background:#101827;color:#94a3b8;font-size:10px;text-transform:uppercase;letter-spacing:.07em;position:sticky;top:0}
+.note{white-space:normal;max-width:230px}
+.statusOk{color:#86efac} .statusWarn{color:#fbbf24}
+.empty{padding:42px 18px;text-align:center;color:#64748b}
+.loginOverlay,.modalOverlay{
+  position:fixed;inset:0;z-index:9999;background:rgba(2,6,23,.96);
+  display:flex;align-items:center;justify-content:center;padding:18px
+}
+.modalOverlay{display:none;background:rgba(2,6,23,.86)} .modalOverlay.show{display:flex}
+.loginCard,.modalCard{
+  width:min(430px,100%);background:linear-gradient(180deg,#111827,#0f172a);
+  border:1px solid var(--line);border-radius:22px;padding:22px
+}
+.loginLogo{
+  width:64px;height:64px;border-radius:18px;margin:0 auto 14px;
+  display:flex;align-items:center;justify-content:center;background:#2563eb;font-weight:900;font-size:23px
+}
+.loginTitle,.modalTitle{font-size:22px;font-weight:900;text-align:center}
+.modalTitle{text-align:left}
+.loginSub,.modalSub{font-size:12px;color:var(--muted);text-align:center;margin:6px 0 18px}
+.modalSub{text-align:left}
+.fieldLabel{font-size:11px;color:#94a3b8;margin:10px 0 6px}
+.message{font-size:12px;margin-top:10px;min-height:18px;color:#fca5a5;text-align:center}
+.modalActions{display:flex;gap:8px;margin-top:14px}
+.modalActions .btn{flex:1}
+.hidden{display:none!important}
+@media(max-width:900px){
+  .overview{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:700px){
+  .main{padding:14px}
+  .topbar{flex-direction:column}
+  .selectorBar{grid-template-columns:1fr}
+  .pageTitle{font-size:23px}
+}
+</style>
+</head>
+<body>
+
+<div class="loginOverlay" id="loginOverlay">
+  <div class="loginCard">
+    <div class="loginLogo">AT</div>
+    <div class="loginTitle">Admin Login</div>
+    <div class="loginSub">Attendance Tracker • Firebase Admin Dashboard</div>
+
+    <div class="fieldLabel">Email</div>
+    <input id="loginEmail" type="email" autocomplete="username" placeholder="Admin email">
+
+    <div class="fieldLabel">Password</div>
+    <input id="loginPassword" type="password" autocomplete="current-password" placeholder="Password">
+
+    <button class="btn primary" id="loginBtn" style="width:100%;margin-top:14px">SIGN IN</button>
+    <div class="message" id="loginMessage"></div>
+  </div>
+</div>
+
+<main class="main">
+  <div class="brand">
+    <div class="brandLogo">AT</div>
+    <div>
+      <div class="brandTitle">Attendance Tracker</div>
+      <div class="brandSub">Admin Dashboard • by Billy</div>
+    </div>
+  </div>
+
+  <div class="topbar">
+    <div>
+      <div class="pageTitle">Attendance Dashboard</div>
+      <div class="pageSub">Live employee records from Firebase Cloud Firestore.</div>
+    </div>
+    <div class="topActions">
+      <span class="syncPill" id="syncStatus">Connecting…</span>
+      <button class="btn" id="editEmployeeBtn" disabled>✎ Edit Employee</button>
+      <button class="btn danger" id="logoutBtn">Logout</button>
+    </div>
+  </div>
+
+  <div class="selectorBar">
+    <div class="selectGroup">
+      <label class="label" for="employeeSelect">Registered Employee</label>
+      <select id="employeeSelect">
+        <option value="">Loading employees…</option>
+      </select>
+    </div>
+    <div class="selectGroup">
+      <label class="label" for="monthSelect">Month</label>
+      <select id="monthSelect"></select>
+    </div>
+  </div>
+
+  <section class="overview">
+    <div class="card">
+      <div class="metricLabel">Days Worked</div>
+      <div class="metricValue" id="daysWorked">0</div>
+      <div class="metricHint">Completed duty days</div>
+    </div>
+    <div class="card">
+      <div class="metricLabel">Monthly Duty Hours</div>
+      <div class="metricValue" id="monthlyDutyHours">0.0</div>
+      <div class="metricHint">Total duty hours</div>
+    </div>
+    <div class="card">
+      <div class="metricLabel">Overtime Hours</div>
+      <div class="metricValue" id="otHours">0.0</div>
+      <div class="metricHint">Above 9 hrs/day</div>
+    </div>
+    <div class="card">
+      <div class="metricLabel">Travel Hours</div>
+      <div class="metricValue" id="travelHours">0.0</div>
+      <div class="metricHint">AM + PM travel</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="employeeHeader">
+      <div class="employeeLeft">
+        <div class="avatar" id="employeeAvatar">--</div>
+        <div>
+          <div class="employeeName" id="employeeName">No employee selected</div>
+          <div class="employeeRole" id="employeeRole">—</div>
+          <div class="employeeId" id="employeeId">Employee ID: —</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Travel In</th>
+            <th>Duty In</th>
+            <th>Duty Out</th>
+            <th>Travel Out</th>
+            <th>AM Travel</th>
+            <th>Duty Hrs</th>
+            <th>OT</th>
+            <th>PM Travel</th>
+            <th>Total Travel</th>
+            <th>Status</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody id="recordsBody">
+          <tr><td colspan="12" class="empty">Select an employee.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div class="modalOverlay" id="editModal">
+  <div class="modalCard">
+    <div class="modalTitle">Edit Employee</div>
+    <div class="modalSub">Admin correction only. Changes are saved to Firestore.</div>
+
+    <div class="fieldLabel">Full Name</div>
+    <input id="editName">
+
+    <div class="fieldLabel">Position / Job Title</div>
+    <input id="editRole">
+
+    <div class="fieldLabel">Employee ID</div>
+    <input id="editEmployeeId">
+
+    <div class="modalActions">
+      <button class="btn" id="cancelEditBtn">Cancel</button>
+      <button class="btn primary" id="saveEditBtn">Save Changes</button>
+    </div>
+    <div class="message" id="editMessage"></div>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+import {
+  getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+import {
+  getFirestore, collection, getDocs, doc, getDoc, updateDoc
+} from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+
+const firebaseConfig = {"apiKey": "AIzaSyDduEjD_JoDprJIO375gWSzR4iY6LpTonU", "authDomain": "traxer-650ff.firebaseapp.com", "projectId": "traxer-650ff", "storageBucket": "traxer-650ff.firebasestorage.app", "messagingSenderId": "666299472568", "appId": "1:666299472568:web:324464e3016d49ec5d324d", "measurementId": "G-39PFKTS7TT"};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const $ = id => document.getElementById(id);
+let employees = new Map();
+let selectedUid = "";
+
+function esc(v) {
+  return String(v ?? "")
+    .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+}
+
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function initials(name) {
+  const p=String(name||"").trim().split(/\s+/).filter(Boolean);
+  if(!p.length) return "--";
+  return p.length===1 ? p[0].slice(0,2).toUpperCase() : (p[0][0]+p[p.length-1][0]).toUpperCase();
+}
+
+function setSync(text, offline=false) {
+  $("syncStatus").textContent=text;
+  $("syncStatus").classList.toggle("offline",offline);
+}
+
+function buildMonths() {
+  const sel=$("monthSelect");
+  sel.innerHTML="";
+  const now=new Date();
+  for(let i=0;i<18;i++) {
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    const value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    const label=d.toLocaleDateString("en-US",{month:"long",year:"numeric"});
+    const o=document.createElement("option");
+    o.value=value;o.textContent=label;sel.appendChild(o);
+  }
+}
+
+async function verifyAdmin(user) {
+  if(!user) return false;
+  const snap=await getDoc(doc(db,"admins",user.uid));
+  return snap.exists() && snap.data()?.role==="admin";
+}
+
+async function loadEmployees() {
+  setSync("Loading employees…");
+  const select=$("employeeSelect");
+  select.innerHTML='<option value="">Loading employees…</option>';
+  employees.clear();
+
+  try {
+    const snap=await getDocs(collection(db,"employees"));
+    const docs=[...snap.docs].sort((a,b)=>
+      String(a.data().name||"").localeCompare(String(b.data().name||""))
+    );
+
+    select.innerHTML="";
+    if(!docs.length) {
+      select.innerHTML='<option value="">No registered employees yet</option>';
+      clearEmployee();
+      setSync("Cloud connected");
+      return;
+    }
+
+    for(const d of docs) {
+      const data=d.data();
+      employees.set(d.id,{uid:d.id,...data});
+      const o=document.createElement("option");
+      o.value=d.id;
+      o.textContent=`${data.name||"Unnamed"} — ${data.position||data.role||"No position"}`;
+      select.appendChild(o);
+    }
+
+    selectedUid=docs[0].id;
+    select.value=selectedUid;
+    $("editEmployeeBtn").disabled=false;
+    await renderSelectedEmployee();
+    setSync("Synced ✓");
+  } catch(err) {
+    console.error(err);
+    setSync("Sync error",true);
+    select.innerHTML='<option value="">Unable to load employees</option>';
+  }
+}
+
+function clearEmployee() {
+  selectedUid="";
+  $("employeeAvatar").textContent="--";
+  $("employeeName").textContent="No employee selected";
+  $("employeeRole").textContent="—";
+  $("employeeId").textContent="Employee ID: —";
+  $("editEmployeeBtn").disabled=true;
+  resetTotals();
+  $("recordsBody").innerHTML='<tr><td colspan="12" class="empty">No registered employees yet.</td></tr>';
+}
+
+function resetTotals() {
+  $("daysWorked").textContent="0";
+  $("monthlyDutyHours").textContent="0.0";
+  $("otHours").textContent="0.0";
+  $("travelHours").textContent="0.0";
+}
+
+async function renderSelectedEmployee() {
+  const e=employees.get(selectedUid);
+  if(!e) { clearEmployee(); return; }
+
+  $("employeeAvatar").textContent=initials(e.name);
+  $("employeeName").textContent=e.name||"Unnamed employee";
+  $("employeeRole").textContent=e.position||e.role||"No position";
+  $("employeeId").textContent="Employee ID: "+(e.employeeId||e.id||"—");
+
+  await loadAttendance(selectedUid,$("monthSelect").value);
+}
+
+async function loadAttendance(uid,month) {
+  resetTotals();
+  $("recordsBody").innerHTML='<tr><td colspan="12" class="empty">Loading attendance…</td></tr>';
+  setSync("Loading records…");
+
+  try {
+    const snap=await getDocs(collection(db,"employees",uid,"attendance"));
+    const rows=[];
+
+    snap.forEach(d=>{
+      const r=d.data();
+      const date=String(r.date||d.id);
+      if(date.startsWith(month)) rows.push({id:d.id,...r,date});
+    });
+
+    rows.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+
+    let days=0,duty=0,ot=0,travel=0;
+    for(const r of rows) {
+      const dh=num(r.dutyHours ?? r.dutyHrs);
+      const oh=num(r.overtimeHours ?? r.otHours ?? r.ot);
+      const th=num(r.travelHours ?? r.totalTravelHours ?? r.totalTravel);
+      duty+=dh; ot+=oh; travel+=th;
+      if(r.dutyIn && r.dutyOut) days++;
+    }
+
+    $("daysWorked").textContent=days;
+    $("monthlyDutyHours").textContent=duty.toFixed(2)+" hrs";
+    $("otHours").textContent=ot.toFixed(2)+" hrs";
+    $("travelHours").textContent=travel.toFixed(2)+" hrs";
+
+    if(!rows.length) {
+      $("recordsBody").innerHTML='<tr><td colspan="12" class="empty">No attendance records for this month.</td></tr>';
+      setSync("Synced ✓");
+      return;
+    }
+
+    $("recordsBody").innerHTML=rows.map(r=>{
+      const complete=Boolean(r.dutyIn && r.dutyOut);
+      return `<tr>
+        <td>${esc(r.date)}</td>
+        <td>${esc(r.travelIn||"—")}</td>
+        <td>${esc(r.dutyIn||"—")}</td>
+        <td>${esc(r.dutyOut||"—")}</td>
+        <td>${esc(r.travelOut||"—")}</td>
+        <td>${num(r.amTravelHours ?? r.amTravel).toFixed(2)}</td>
+        <td>${num(r.dutyHours ?? r.dutyHrs).toFixed(2)}</td>
+        <td>${num(r.overtimeHours ?? r.otHours ?? r.ot).toFixed(2)}</td>
+        <td>${num(r.pmTravelHours ?? r.pmTravel).toFixed(2)}</td>
+        <td>${num(r.travelHours ?? r.totalTravelHours ?? r.totalTravel).toFixed(2)}</td>
+        <td class="${complete?'statusOk':'statusWarn'}">${complete?'Complete':'Incomplete'}</td>
+        <td class="note">${esc(r.note||"")}</td>
+      </tr>`;
+    }).join("");
+
+    setSync("Synced ✓");
+  } catch(err) {
+    console.error(err);
+    $("recordsBody").innerHTML='<tr><td colspan="12" class="empty">Unable to read attendance. Check Firestore rules.</td></tr>';
+    setSync("Sync error",true);
+  }
+}
+
+$("loginBtn").addEventListener("click",async()=>{
+  $("loginMessage").textContent="";
+  try {
+    $("loginBtn").disabled=true;
+    const cred=await signInWithEmailAndPassword(auth,$("loginEmail").value.trim(),$("loginPassword").value);
+    const ok=await verifyAdmin(cred.user);
+    if(!ok) {
+      await signOut(auth);
+      $("loginMessage").textContent="This account is not authorized as an admin.";
+    }
+  } catch(err) {
+    console.error(err);
+    $("loginMessage").textContent="Login failed. Check your email and password.";
+  } finally {
+    $("loginBtn").disabled=false;
+  }
+});
+
+$("logoutBtn").addEventListener("click",()=>signOut(auth));
+
+$("employeeSelect").addEventListener("change",async e=>{
+  selectedUid=e.target.value;
+  $("editEmployeeBtn").disabled=!selectedUid;
+  await renderSelectedEmployee();
+});
+
+$("monthSelect").addEventListener("change",async()=>{
+  if(selectedUid) await loadAttendance(selectedUid,$("monthSelect").value);
+});
+
+$("editEmployeeBtn").addEventListener("click",()=>{
+  const e=employees.get(selectedUid);
+  if(!e) return;
+  $("editName").value=e.name||"";
+  $("editRole").value=e.position||e.role||"";
+  $("editEmployeeId").value=e.employeeId||e.id||"";
+  $("editMessage").textContent="";
+  $("editModal").classList.add("show");
+});
+
+$("cancelEditBtn").addEventListener("click",()=>$("editModal").classList.remove("show"));
+
+$("saveEditBtn").addEventListener("click",async()=>{
+  const e=employees.get(selectedUid);
+  if(!e) return;
+
+  const name=$("editName").value.trim();
+  const position=$("editRole").value.trim();
+  const employeeId=$("editEmployeeId").value.trim();
+
+  if(!name || !position || !employeeId) {
+    $("editMessage").textContent="Complete all fields.";
+    return;
+  }
+
+  try {
+    $("saveEditBtn").disabled=true;
+    $("editMessage").textContent="";
+
+    // Check duplicate employee ID among currently loaded employees.
+    const duplicate=[...employees.values()].some(x=>
+      x.uid!==selectedUid &&
+      String(x.employeeId||"").trim().toLowerCase()===employeeId.toLowerCase()
+    );
+    if(duplicate) {
+      $("editMessage").textContent="Employee ID is already assigned to another employee.";
+      return;
+    }
+
+    await updateDoc(doc(db,"employees",selectedUid),{name,position,employeeId});
+    Object.assign(e,{name,position,employeeId});
+
+    const opt=$("employeeSelect").querySelector(`option[value="${selectedUid}"]`);
+    if(opt) opt.textContent=`${name} — ${position}`;
+
+    $("editModal").classList.remove("show");
+    await renderSelectedEmployee();
+    setSync("Synced ✓");
+  } catch(err) {
+    console.error(err);
+    $("editMessage").textContent="Unable to save. Check Firestore permissions.";
+  } finally {
+    $("saveEditBtn").disabled=false;
+  }
+});
+
+window.addEventListener("online",()=>setSync("Online"));
+window.addEventListener("offline",()=>setSync("Offline",true));
+
+buildMonths();
+
+onAuthStateChanged(auth,async user=>{
+  if(!user) {
+    $("loginOverlay").classList.remove("hidden");
+    setSync(navigator.onLine?"Not signed in":"Offline",!navigator.onLine);
+    return;
+  }
+
+  try {
+    const ok=await verifyAdmin(user);
+    if(!ok) {
+      $("loginOverlay").classList.remove("hidden");
+      $("loginMessage").textContent="This Firebase account is not listed in the admins collection.";
+      await signOut(auth);
+      return;
+    }
+
+    $("loginOverlay").classList.add("hidden");
+    $("loginMessage").textContent="";
+    await loadEmployees();
+  } catch(err) {
+    console.error(err);
+    $("loginOverlay").classList.remove("hidden");
+    $("loginMessage").textContent="Unable to verify admin access.";
+  }
+});
+</script>
+</body>
+</html>
