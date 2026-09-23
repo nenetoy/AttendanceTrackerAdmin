@@ -386,10 +386,15 @@ async function loadAttendance(uid,month) {
       if(date.startsWith(month)) rows.push({id:d.id,...r,date});
     });
 
-    rows.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+    rows.sort((a,b)=>{
+      const d=String(a.date).localeCompare(String(b.date));
+      if(d!==0)return d;
+      return String(a.recordId||a.id).localeCompare(String(b.recordId||b.id));
+    });
 
     let days=0,duty=0,ot=0,travel=0;
     for(const r of rows) {
+      if(r.status==='Reset' || r.resetAt) continue;
       const dh=num(r.dutyHours ?? r.dutyHrs);
       const oh=num(r.overtimeHours ?? r.otHours ?? r.ot);
       const th=num(r.travelHours ?? r.totalTravelHours ?? r.totalTravel);
@@ -409,8 +414,10 @@ async function loadAttendance(uid,month) {
     }
 
     $("recordsBody").innerHTML=rows.map(r=>{
-      const complete=Boolean(r.dutyIn && r.dutyOut);
-      return `<tr>
+      const isReset=(r.status==='Reset'||Boolean(r.resetAt));
+      const complete=Boolean(r.dutyIn && r.dutyOut) && !isReset;
+      const status=isReset?'Reset':(complete?'Complete':'Incomplete');
+      return `<tr${isReset?' style="opacity:.62"':''}>
         <td>${esc(r.date)}</td>
         <td>${esc(r.travelIn||"—")}</td>
         <td>${esc(r.dutyIn||"—")}</td>
@@ -421,7 +428,7 @@ async function loadAttendance(uid,month) {
         <td>${num(r.overtimeHours ?? r.otHours ?? r.ot).toFixed(2)}</td>
         <td>${num(r.pmTravelHours ?? r.pmTravel).toFixed(2)}</td>
         <td>${num(r.travelHours ?? r.totalTravelHours ?? r.totalTravel).toFixed(2)}</td>
-        <td class="${complete?'statusOk':'statusWarn'}">${complete?'Complete':'Incomplete'}</td>
+        <td class="${isReset?'statusWarn':(complete?'statusOk':'statusWarn')}">${status}</td>
         <td class="note">${esc(r.note||"")}</td>
       </tr>`;
     }).join("");
