@@ -166,17 +166,17 @@ th{background:#101827;color:#94a3b8;font-size:10px;text-transform:uppercase;lett
     </div>
     <div class="card">
       <div class="metricLabel">Monthly Duty Hours</div>
-      <div class="metricValue" id="monthlyDutyHours">0.0</div>
+      <div class="metricValue" id="monthlyDutyHours">0h 00m</div>
       <div class="metricHint">Total duty hours</div>
     </div>
     <div class="card">
       <div class="metricLabel">Overtime Hours</div>
-      <div class="metricValue" id="otHours">0.0</div>
+      <div class="metricValue" id="otHours">0h 00m</div>
       <div class="metricHint">Above 9 hrs/day</div>
     </div>
     <div class="card">
       <div class="metricLabel">Travel Hours</div>
-      <div class="metricValue" id="travelHours">0.0</div>
+      <div class="metricValue" id="travelHours">0h 00m</div>
       <div class="metricHint">AM + PM travel</div>
     </div>
   </section>
@@ -271,6 +271,13 @@ function num(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function formatDuration(v) {
+  const totalMinutes=Math.max(0,Math.round(num(v)*60));
+  const h=Math.floor(totalMinutes/60);
+  const m=totalMinutes%60;
+  return `${h}h ${String(m).padStart(2,"0")}m`;
+}
+
 function initials(name) {
   const p=String(name||"").trim().split(/\s+/).filter(Boolean);
   if(!p.length) return "--";
@@ -282,17 +289,45 @@ function setSync(text, offline=false) {
   $("syncStatus").classList.toggle("offline",offline);
 }
 
-function buildMonths() {
+async function buildMonthsForEmployee(uid) {
   const sel=$("monthSelect");
+  sel.innerHTML='<option value="">Loading months…</option>';
+
+  if(!uid) {
+    sel.innerHTML='<option value="">No records</option>';
+    return false;
+  }
+
+  const snap=await getDocs(collection(db,"employees",uid,"attendance"));
+  const months=new Set();
+
+  snap.forEach(d=>{
+    const r=d.data();
+    const date=String(r.date||"");
+    if(/^\d{4}-\d{2}-\d{2}/.test(date)) months.add(date.slice(0,7));
+  });
+
+  const list=[...months].sort((a,b)=>b.localeCompare(a));
   sel.innerHTML="";
-  const now=new Date();
-  for(let i=0;i<18;i++) {
-    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
-    const value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+
+  if(!list.length) {
+    sel.innerHTML='<option value="">No attendance records</option>';
+    return false;
+  }
+
+  for(const value of list) {
+    const [y,m]=value.split("-").map(Number);
+    const d=new Date(y,m-1,1);
     const label=d.toLocaleDateString("en-US",{month:"long",year:"numeric"});
     const o=document.createElement("option");
-    o.value=value;o.textContent=label;sel.appendChild(o);
+    o.value=value;
+    o.textContent=label;
+    sel.appendChild(o);
   }
+
+  // Latest month with actual data appears first.
+  sel.value=list[0];
+  return true;
 }
 
 async function verifyAdmin(user) {
@@ -357,9 +392,9 @@ function clearEmployee() {
 
 function resetTotals() {
   $("daysWorked").textContent="0";
-  $("monthlyDutyHours").textContent="0.0";
-  $("otHours").textContent="0.0";
-  $("travelHours").textContent="0.0";
+  $("monthlyDutyHours").textContent="0h 00m";
+  $("otHours").textContent="0h 00m";
+  $("travelHours").textContent="0h 00m";
 }
 
 async function renderSelectedEmployee() {
@@ -370,6 +405,14 @@ async function renderSelectedEmployee() {
   $("employeeName").textContent=e.name||"Unnamed employee";
   $("employeeRole").textContent=e.position||e.role||"No position";
   $("employeeId").textContent="Employee ID: "+(e.employeeId||e.id||"—");
+
+  const hasMonths=await buildMonthsForEmployee(selectedUid);
+  if(!hasMonths) {
+    resetTotals();
+    $("recordsBody").innerHTML='<tr><td colspan="12" class="empty">No attendance records for this employee.</td></tr>';
+    setSync("Synced ✓");
+    return;
+  }
 
   await loadAttendance(selectedUid,$("monthSelect").value);
 }
@@ -406,9 +449,9 @@ async function loadAttendance(uid,month) {
     }
 
     $("daysWorked").textContent=days;
-    $("monthlyDutyHours").textContent=duty.toFixed(2)+" hrs";
-    $("otHours").textContent=ot.toFixed(2)+" hrs";
-    $("travelHours").textContent=travel.toFixed(2)+" hrs";
+    $("monthlyDutyHours").textContent=formatDuration(duty);
+    $("otHours").textContent=formatDuration(ot);
+    $("travelHours").textContent=formatDuration(travel);
 
     if(!rows.length) {
       $("recordsBody").innerHTML='<tr><td colspan="12" class="empty">No attendance records for this month.</td></tr>';
@@ -426,11 +469,11 @@ async function loadAttendance(uid,month) {
         <td>${esc(r.dutyIn||"—")}</td>
         <td>${esc(r.dutyOut||"—")}</td>
         <td>${esc(r.travelOut||"—")}</td>
-        <td>${num(r.amTravelHours ?? r.amTravel).toFixed(2)}</td>
-        <td>${num(r.dutyHours ?? r.dutyHrs).toFixed(2)}</td>
-        <td>${num(r.overtimeHours ?? r.otHours ?? r.ot).toFixed(2)}</td>
-        <td>${num(r.pmTravelHours ?? r.pmTravel).toFixed(2)}</td>
-        <td>${num(r.travelHours ?? r.totalTravelHours ?? r.totalTravel).toFixed(2)}</td>
+        <td>${formatDuration(r.amTravelHours ?? r.amTravel)}</td>
+        <td>${formatDuration(r.dutyHours ?? r.dutyHrs)}</td>
+        <td>${formatDuration(r.overtimeHours ?? r.otHours ?? r.ot)}</td>
+        <td>${formatDuration(r.pmTravelHours ?? r.pmTravel)}</td>
+        <td>${formatDuration(r.travelHours ?? r.totalTravelHours ?? r.totalTravel)}</td>
         <td class="${isReset?'statusWarn':(complete?'statusOk':'statusWarn')}">${status}</td>
         <td class="note">${esc(r.note||"")}</td>
       </tr>`;
@@ -515,6 +558,7 @@ $("logoutBtn").addEventListener("click",()=>signOut(auth));
 $("employeeSelect").addEventListener("change",async e=>{
   selectedUid=e.target.value;
   $("editEmployeeBtn").disabled=!selectedUid;
+  $("deleteEmployeeBtn").disabled=!selectedUid;
   await renderSelectedEmployee();
 });
 
@@ -581,7 +625,6 @@ $("saveEditBtn").addEventListener("click",async()=>{
 window.addEventListener("online",()=>setSync("Online"));
 window.addEventListener("offline",()=>setSync("Offline",true));
 
-buildMonths();
 
 onAuthStateChanged(auth,async user=>{
   if(!user) {
