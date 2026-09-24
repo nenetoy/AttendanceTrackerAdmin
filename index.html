@@ -149,6 +149,8 @@ th{background:#101827;color:#94a3b8;font-size:10px;text-transform:uppercase;lett
     <div class="topActions">
       <span class="syncPill" id="syncStatus">Connecting…</span>
       <button class="btn" id="editEmployeeBtn" disabled>✎ Edit Employee</button>
+      <button class="btn" id="noticeEmployeeBtn" disabled>🔔 Send Notice</button>
+      <button class="btn danger" id="clearNoticeBtn" disabled>Clear Notice</button>
       <button class="btn danger" id="deleteEmployeeBtn" disabled>🗑 Delete Employee</button>
       <button class="btn danger" id="logoutBtn">Logout</button>
     </div>
@@ -229,6 +231,25 @@ th{background:#101827;color:#94a3b8;font-size:10px;text-transform:uppercase;lett
   </section>
 </main>
 
+
+
+<div class="modalOverlay" id="noticeModal">
+  <div class="modalCard">
+    <div class="modalTitle">Send Notice</div>
+    <div class="modalSub" id="noticeTarget">Send a reminder to the selected employee.</div>
+
+    <div class="fieldLabel">Notice / Reminder</div>
+    <textarea id="noticeMessage" rows="5" maxlength="500"
+      placeholder="Example: Please submit your timesheet before 5:00 PM."
+      style="width:100%;resize:vertical"></textarea>
+
+    <div class="modalActions">
+      <button class="btn" id="cancelNoticeBtn">Cancel</button>
+      <button class="btn primary" id="sendNoticeBtn">Send Notice</button>
+    </div>
+    <div class="message" id="noticeStatus"></div>
+  </div>
+</div>
 
 <div class="modalOverlay" id="transferModal">
   <div class="modalCard">
@@ -396,6 +417,8 @@ async function loadEmployees() {
     selectedUid=docs[0].id;
     select.value=selectedUid;
     $("editEmployeeBtn").disabled=false;
+    $("noticeEmployeeBtn").disabled=false;
+    $("clearNoticeBtn").disabled=false;
     $("deleteEmployeeBtn").disabled=false;
     await renderSelectedEmployee();
     setSync("Synced ✓");
@@ -413,6 +436,8 @@ function clearEmployee() {
   $("employeeRole").textContent="—";
   $("employeeId").textContent="Employee ID: —";
   $("editEmployeeBtn").disabled=true;
+  $("noticeEmployeeBtn").disabled=true;
+  $("clearNoticeBtn").disabled=true;
   $("deleteEmployeeBtn").disabled=true;
   resetTotals();
   $("recordsBody").innerHTML='<tr><td colspan="13" class="empty">No registered employees yet.</td></tr>';
@@ -698,11 +723,87 @@ $("confirmTransferBtn").addEventListener("click",async()=>{
   }
 });
 
+
+$("noticeEmployeeBtn").addEventListener("click",()=>{
+  const e=employees.get(selectedUid);
+  if(!e)return;
+  $("noticeTarget").textContent=`Send a notice to ${e.name||"selected employee"}.`;
+  $("noticeMessage").value="";
+  $("noticeStatus").textContent="";
+  $("noticeModal").classList.add("show");
+});
+
+$("cancelNoticeBtn").addEventListener("click",()=>{
+  $("noticeModal").classList.remove("show");
+});
+
+$("sendNoticeBtn").addEventListener("click",async()=>{
+  const e=employees.get(selectedUid);
+  const message=$("noticeMessage").value.trim();
+  if(!e || !message)return;
+
+  const btn=$("sendNoticeBtn");
+  btn.disabled=true;
+  $("noticeStatus").textContent="Sending…";
+
+  try{
+    const noticeId=`notice-${Date.now()}`;
+    await updateDoc(doc(db,"employees",selectedUid),{
+      noticeText:message,
+      noticeId,
+      noticeActive:true,
+      noticeUpdatedAt:new Date().toISOString()
+    });
+
+    Object.assign(e,{
+      noticeText:message,
+      noticeId,
+      noticeActive:true,
+      noticeUpdatedAt:new Date().toISOString()
+    });
+
+    $("noticeStatus").textContent="Notice sent ✓";
+    setSync("Notice sent ✓");
+    setTimeout(()=>$("noticeModal").classList.remove("show"),500);
+  }catch(err){
+    console.error(err);
+    $("noticeStatus").textContent="Unable to send notice.";
+    setSync("Notice failed",true);
+  }finally{
+    btn.disabled=false;
+  }
+});
+
+$("clearNoticeBtn").addEventListener("click",async()=>{
+  const e=employees.get(selectedUid);
+  if(!e)return;
+
+  if(!confirm(`Clear the current notice for ${e.name||"this employee"}?`))return;
+
+  try{
+    $("clearNoticeBtn").disabled=true;
+    await updateDoc(doc(db,"employees",selectedUid),{
+      noticeText:"",
+      noticeActive:false,
+      noticeUpdatedAt:new Date().toISOString()
+    });
+    Object.assign(e,{noticeText:"",noticeActive:false});
+    setSync("Notice cleared ✓");
+  }catch(err){
+    console.error(err);
+    setSync("Unable to clear notice",true);
+  }finally{
+    $("clearNoticeBtn").disabled=false;
+  }
+});
+
 $("logoutBtn").addEventListener("click",()=>signOut(auth));
 
 $("employeeSelect").addEventListener("change",async e=>{
   selectedUid=e.target.value;
   $("editEmployeeBtn").disabled=!selectedUid;
+  $("noticeEmployeeBtn").disabled=!selectedUid;
+  $("clearNoticeBtn").disabled=!selectedUid;
   $("deleteEmployeeBtn").disabled=!selectedUid;
   await renderSelectedEmployee();
 });
