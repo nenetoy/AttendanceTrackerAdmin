@@ -102,6 +102,15 @@ th{background:#101827;color:#94a3b8;font-size:10px;text-transform:uppercase;lett
   .selectorBar{grid-template-columns:1fr}
   .pageTitle{font-size:23px}
 }
+
+.tableActionBtn{
+  min-height:34px;
+  padding:7px 10px;
+  border-radius:9px;
+  white-space:nowrap;
+  font-size:12px;
+}
+
 </style>
 </head>
 <body>
@@ -209,15 +218,33 @@ th{background:#101827;color:#94a3b8;font-size:10px;text-transform:uppercase;lett
             <th>Total Travel</th>
             <th>Status</th>
             <th>Note</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody id="recordsBody">
-          <tr><td colspan="12" class="empty">Select an employee.</td></tr>
+          <tr><td colspan="13" class="empty">Select an employee.</td></tr>
         </tbody>
       </table>
     </div>
   </section>
 </main>
+
+
+<div class="modalOverlay" id="transferModal">
+  <div class="modalCard">
+    <div class="modalTitle">Transfer Attendance Day</div>
+    <div class="modalSub" id="transferInfo">Move one day's attendance records to another employee.</div>
+
+    <div class="fieldLabel">Transfer To</div>
+    <select id="transferEmployeeSelect"></select>
+
+    <div class="modalActions">
+      <button class="btn" id="cancelTransferBtn">Cancel</button>
+      <button class="btn primary" id="confirmTransferBtn">Transfer Day</button>
+    </div>
+    <div class="message" id="transferMessage"></div>
+  </div>
+</div>
 
 <div class="modalOverlay" id="editModal">
   <div class="modalCard">
@@ -247,7 +274,7 @@ import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import {
-  getFirestore, collection, getDocs, doc, getDoc, updateDoc, deleteDoc
+  getFirestore, collection, getDocs, doc, getDoc, updateDoc, deleteDoc, writeBatch
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
 const firebaseConfig = {"apiKey": "AIzaSyDduEjD_JoDprJIO375gWSzR4iY6LpTonU", "authDomain": "traxer-650ff.firebaseapp.com", "projectId": "traxer-650ff", "storageBucket": "traxer-650ff.firebasestorage.app", "messagingSenderId": "666299472568", "appId": "1:666299472568:web:324464e3016d49ec5d324d", "measurementId": "G-39PFKTS7TT"};
@@ -259,6 +286,7 @@ const db = getFirestore(app);
 const $ = id => document.getElementById(id);
 let employees = new Map();
 let selectedUid = "";
+let transferDate = "";
 
 function esc(v) {
   return String(v ?? "")
@@ -387,7 +415,7 @@ function clearEmployee() {
   $("editEmployeeBtn").disabled=true;
   $("deleteEmployeeBtn").disabled=true;
   resetTotals();
-  $("recordsBody").innerHTML='<tr><td colspan="12" class="empty">No registered employees yet.</td></tr>';
+  $("recordsBody").innerHTML='<tr><td colspan="13" class="empty">No registered employees yet.</td></tr>';
 }
 
 function resetTotals() {
@@ -409,7 +437,7 @@ async function renderSelectedEmployee() {
   const hasMonths=await buildMonthsForEmployee(selectedUid);
   if(!hasMonths) {
     resetTotals();
-    $("recordsBody").innerHTML='<tr><td colspan="12" class="empty">No attendance records for this employee.</td></tr>';
+    $("recordsBody").innerHTML='<tr><td colspan="13" class="empty">No attendance records for this employee.</td></tr>';
     setSync("Synced ✓");
     return;
   }
@@ -419,7 +447,7 @@ async function renderSelectedEmployee() {
 
 async function loadAttendance(uid,month) {
   resetTotals();
-  $("recordsBody").innerHTML='<tr><td colspan="12" class="empty">Loading attendance…</td></tr>';
+  $("recordsBody").innerHTML='<tr><td colspan="13" class="empty">Loading attendance…</td></tr>';
   setSync("Loading records…");
 
   try {
@@ -454,7 +482,7 @@ async function loadAttendance(uid,month) {
     $("travelHours").textContent=formatDuration(travel);
 
     if(!rows.length) {
-      $("recordsBody").innerHTML='<tr><td colspan="12" class="empty">No attendance records for this month.</td></tr>';
+      $("recordsBody").innerHTML='<tr><td colspan="13" class="empty">No attendance records for this month.</td></tr>';
       setSync("Synced ✓");
       return;
     }
@@ -476,13 +504,18 @@ async function loadAttendance(uid,month) {
         <td>${formatDuration(r.travelHours ?? r.totalTravelHours ?? r.totalTravel)}</td>
         <td class="${isReset?'statusWarn':(complete?'statusOk':'statusWarn')}">${status}</td>
         <td class="note">${esc(r.note||"")}</td>
+        <td><button class="btn tableActionBtn transferDayBtn" data-date="${esc(r.date)}">Transfer Day</button></td>
       </tr>`;
     }).join("");
+
+    document.querySelectorAll(".transferDayBtn").forEach(btn=>{
+      btn.addEventListener("click",()=>openTransferModal(btn.dataset.date));
+    });
 
     setSync("Synced ✓");
   } catch(err) {
     console.error(err);
-    $("recordsBody").innerHTML='<tr><td colspan="12" class="empty">Unable to read attendance. Check Firestore rules.</td></tr>';
+    $("recordsBody").innerHTML='<tr><td colspan="13" class="empty">Unable to read attendance. Check Firestore rules.</td></tr>';
     setSync("Sync error",true);
   }
 }
@@ -550,6 +583,118 @@ $("deleteEmployeeBtn").addEventListener("click",async()=>{
     alert("Unable to delete employee. Please check your connection and Firestore permissions.");
     btn.disabled=false;
     $("editEmployeeBtn").disabled=false;
+  }
+});
+
+
+function openTransferModal(date){
+  if(!selectedUid || !date)return;
+  transferDate=date;
+
+  const source=employees.get(selectedUid);
+  $("transferInfo").textContent=`Move all attendance records for ${date} from ${source?.name||"selected employee"} to another employee.`;
+  $("transferMessage").textContent="";
+
+  const sel=$("transferEmployeeSelect");
+  sel.innerHTML="";
+
+  const targets=[...employees.values()]
+    .filter(e=>e.uid!==selectedUid)
+    .sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+
+  if(!targets.length){
+    sel.innerHTML='<option value="">No other employee available</option>';
+    $("confirmTransferBtn").disabled=true;
+  }else{
+    for(const e of targets){
+      const o=document.createElement("option");
+      o.value=e.uid;
+      o.textContent=`${e.name||"Unnamed"} — ${e.employeeId||e.id||"No ID"}`;
+      sel.appendChild(o);
+    }
+    $("confirmTransferBtn").disabled=false;
+  }
+
+  $("transferModal").classList.add("show");
+}
+
+$("cancelTransferBtn").addEventListener("click",()=>{
+  $("transferModal").classList.remove("show");
+  transferDate="";
+});
+
+$("confirmTransferBtn").addEventListener("click",async()=>{
+  const targetUid=$("transferEmployeeSelect").value;
+  if(!selectedUid || !targetUid || !transferDate)return;
+
+  const source=employees.get(selectedUid);
+  const target=employees.get(targetUid);
+  if(!source || !target)return;
+
+  const confirmed=confirm(
+    `Transfer ${transferDate}?\n\n` +
+    `From: ${source.name||"Source employee"}\n` +
+    `To: ${target.name||"Destination employee"}\n\n` +
+    `ALL records for this date, including reset/audit rows, will be moved.`
+  );
+  if(!confirmed)return;
+
+  const btn=$("confirmTransferBtn");
+  btn.disabled=true;
+  $("transferMessage").textContent="Transferring…";
+
+  try{
+    const sourceSnap=await getDocs(collection(db,"employees",selectedUid,"attendance"));
+    const dayDocs=sourceSnap.docs.filter(d=>{
+      const data=d.data();
+      return String(data.date||"")===transferDate;
+    });
+
+    if(!dayDocs.length){
+      $("transferMessage").textContent="No records found for this date.";
+      btn.disabled=false;
+      return;
+    }
+
+    const batch=writeBatch(db);
+
+    for(const d of dayDocs){
+      const data=d.data();
+
+      // Generate a destination ID that preserves the original ID but avoids overwrite.
+      let destId=d.id;
+      const existing=await getDoc(doc(db,"employees",targetUid,"attendance",destId));
+      if(existing.exists()){
+        destId=`${d.id}-moved-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+      }
+
+      batch.set(
+        doc(db,"employees",targetUid,"attendance",destId),
+        {
+          ...data,
+          transferredFromUid:selectedUid,
+          transferredFromName:source.name||"",
+          transferredAt:new Date().toISOString()
+        }
+      );
+
+      batch.delete(doc(db,"employees",selectedUid,"attendance",d.id));
+    }
+
+    await batch.commit();
+
+    $("transferModal").classList.remove("show");
+    transferDate="";
+    setSync("Transfer complete ✓");
+
+    // Refresh source employee. Month list will update automatically if this was its only record for the month.
+    await renderSelectedEmployee();
+  }catch(err){
+    console.error(err);
+    $("transferMessage").textContent="Transfer failed. Check Firestore permissions/connection.";
+    setSync("Transfer failed",true);
+  }finally{
+    btn.disabled=false;
   }
 });
 
