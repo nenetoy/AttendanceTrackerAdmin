@@ -111,6 +111,19 @@ th{background:#101827;color:#94a3b8;font-size:10px;text-transform:uppercase;lett
   font-size:12px;
 }
 
+
+.reportPreviewModal{width:min(1100px,96vw);max-height:92vh;overflow:hidden;display:flex;flex-direction:column}
+.reportPreviewBody{background:#fff;color:#111;border-radius:12px;padding:18px;overflow:auto;max-height:72vh}
+.reportPreviewBody h1{font-size:22px;margin:0 0 4px}
+.reportPreviewBody h2{font-size:15px;margin:0 0 14px;color:#444}
+.reportPreviewBody table{width:100%;border-collapse:collapse}
+.reportPreviewBody .previewInfo td{padding:4px 6px}
+.reportPreviewBody .previewSummary td{border:1px solid #999;padding:8px;text-align:center;font-weight:700}
+.reportPreviewBody .previewAtt{font-size:12px;margin-top:10px}
+.reportPreviewBody .previewAtt th,.reportPreviewBody .previewAtt td{border:1px solid #999;padding:5px;text-align:center;vertical-align:middle}
+.reportPreviewBody .previewAtt th{background:#e9ecef}
+.reportPreviewBody .previewAtt .note{text-align:left}
+
 </style>
 </head>
 <body>
@@ -149,6 +162,7 @@ th{background:#101827;color:#94a3b8;font-size:10px;text-transform:uppercase;lett
     <div class="topActions">
       <span class="syncPill" id="syncStatus">Connecting…</span>
       <button class="btn" id="editEmployeeBtn" disabled>✎ Edit Employee</button>
+      <button class="btn" id="previewWordBtn" disabled>👁 Preview Word</button>
       <button class="btn" id="noticeEmployeeBtn" disabled>🔔 Send Notice</button>
       <button class="btn danger" id="clearNoticeBtn" disabled>Clear Notice</button>
       <button class="btn danger" id="deleteEmployeeBtn" disabled>🗑 Delete Employee</button>
@@ -200,6 +214,7 @@ th{background:#101827;color:#94a3b8;font-size:10px;text-transform:uppercase;lett
           <div class="employeeName" id="employeeName">No employee selected</div>
           <div class="employeeRole" id="employeeRole">—</div>
           <div class="employeeId" id="employeeId">Employee ID: —</div>
+          <div class="employeeId" id="noticeReceipt">Notice: —</div>
         </div>
       </div>
     </div>
@@ -232,6 +247,20 @@ th{background:#101827;color:#94a3b8;font-size:10px;text-transform:uppercase;lett
 </main>
 
 
+
+
+<div class="modalOverlay" id="wordPreviewModal">
+  <div class="modalCard reportPreviewModal">
+    <div class="modalTitle">Monthly Word Report Preview</div>
+    <div class="modalSub" id="wordPreviewSub">Review the report before downloading.</div>
+    <div class="reportPreviewBody" id="wordPreviewBody"></div>
+    <div class="modalActions" style="margin-top:14px">
+      <button class="btn" id="closeWordPreviewBtn">Close</button>
+      <button class="btn primary" id="downloadWordBtn">⬇ Download Word</button>
+    </div>
+    <div class="message" id="wordPreviewMessage"></div>
+  </div>
+</div>
 
 <div class="modalOverlay" id="noticeModal">
   <div class="modalCard">
@@ -417,6 +446,7 @@ async function loadEmployees() {
     selectedUid=docs[0].id;
     select.value=selectedUid;
     $("editEmployeeBtn").disabled=false;
+    $("previewWordBtn").disabled=false;
     $("noticeEmployeeBtn").disabled=false;
     $("clearNoticeBtn").disabled=false;
     $("deleteEmployeeBtn").disabled=false;
@@ -435,7 +465,9 @@ function clearEmployee() {
   $("employeeName").textContent="No employee selected";
   $("employeeRole").textContent="—";
   $("employeeId").textContent="Employee ID: —";
+  $("noticeReceipt").textContent="Notice: —";
   $("editEmployeeBtn").disabled=true;
+  $("previewWordBtn").disabled=true;
   $("noticeEmployeeBtn").disabled=true;
   $("clearNoticeBtn").disabled=true;
   $("deleteEmployeeBtn").disabled=true;
@@ -450,6 +482,39 @@ function resetTotals() {
   $("travelHours").textContent="0h 00m";
 }
 
+function formatFirestoreTime(v){
+  if(!v)return '';
+  try{
+    const d=typeof v.toDate==='function'?v.toDate():new Date(v);
+    if(Number.isNaN(d.getTime()))return '';
+    return d.toLocaleString('en-US',{month:'short',day:'2-digit',year:'numeric',hour:'numeric',minute:'2-digit'});
+  }catch{return ''}
+}
+
+function renderNoticeReceipt(e){
+  const el=$("noticeReceipt");
+  if(!el)return;
+  if(!e || !e.noticeId){el.textContent='Notice: No notice';return;}
+  if(e.noticeReadId===e.noticeId){
+    const when=formatFirestoreTime(e.noticeReadAt||e.noticeReadDeviceAt);
+    el.textContent='Notice: Read'+(when?` • ${when}`:'');
+    return;
+  }
+  if(e.noticeActive){el.textContent='Notice: Unread';return;}
+  el.textContent='Notice: Cleared';
+}
+
+async function refreshNoticeReceipt(){
+  if(!selectedUid)return;
+  try{
+    const snap=await getDoc(doc(db,"employees",selectedUid));
+    if(!snap.exists())return;
+    const fresh={uid:selectedUid,...snap.data()};
+    employees.set(selectedUid,fresh);
+    renderNoticeReceipt(fresh);
+  }catch(err){console.error('Receipt refresh failed',err)}
+}
+
 async function renderSelectedEmployee() {
   const e=employees.get(selectedUid);
   if(!e) { clearEmployee(); return; }
@@ -458,6 +523,7 @@ async function renderSelectedEmployee() {
   $("employeeName").textContent=e.name||"Unnamed employee";
   $("employeeRole").textContent=e.position||e.role||"No position";
   $("employeeId").textContent="Employee ID: "+(e.employeeId||e.id||"—");
+  renderNoticeReceipt(e);
 
   const hasMonths=await buildMonthsForEmployee(selectedUid);
   if(!hasMonths) {
@@ -752,6 +818,9 @@ $("sendNoticeBtn").addEventListener("click",async()=>{
       noticeText:message,
       noticeId,
       noticeActive:true,
+      noticeReadId:"",
+      noticeReadAt:null,
+      noticeReadDeviceAt:null,
       noticeUpdatedAt:new Date().toISOString()
     });
 
@@ -759,10 +828,14 @@ $("sendNoticeBtn").addEventListener("click",async()=>{
       noticeText:message,
       noticeId,
       noticeActive:true,
+      noticeReadId:"",
+      noticeReadAt:null,
+      noticeReadDeviceAt:null,
       noticeUpdatedAt:new Date().toISOString()
     });
 
     $("noticeStatus").textContent="Notice sent ✓";
+    renderNoticeReceipt(e);
     setSync("Notice sent ✓");
     setTimeout(()=>$("noticeModal").classList.remove("show"),500);
   }catch(err){
@@ -788,6 +861,7 @@ $("clearNoticeBtn").addEventListener("click",async()=>{
       noticeUpdatedAt:new Date().toISOString()
     });
     Object.assign(e,{noticeText:"",noticeActive:false});
+    renderNoticeReceipt(e);
     setSync("Notice cleared ✓");
   }catch(err){
     console.error(err);
@@ -797,11 +871,128 @@ $("clearNoticeBtn").addEventListener("click",async()=>{
   }
 });
 
+
+let currentWordReportHtml="";
+let currentWordReportFileName="";
+
+function wordSafe(v){
+  return String(v??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+}
+
+function monthLabelFromKey(month){
+  if(!month)return "";
+  const [y,m]=month.split("-").map(Number);
+  return new Date(y,m-1,1).toLocaleDateString("en-US",{month:"long",year:"numeric"});
+}
+
+function saveWordFile(fileName,htmlContent){
+  const blob=new Blob(["\ufeff",htmlContent],{type:"application/msword"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;a.download=fileName;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+async function buildMonthlyWordReport(){
+  if(!selectedUid)return null;
+  const employee=employees.get(selectedUid);
+  const month=$("monthSelect").value;
+  if(!employee || !month)return null;
+
+  const snap=await getDocs(collection(db,"employees",selectedUid,"attendance"));
+  const rows=[];
+  snap.forEach(d=>{
+    const r=d.data();
+    const date=String(r.date||"");
+    if(!date.startsWith(month))return;
+    if(r.status==="Reset" || r.resetAt)return;
+    rows.push({id:d.id,...r,date});
+  });
+
+  const byDate=new Map();
+  for(const r of rows){
+    const prev=byDate.get(r.date);
+    if(!prev || String(r.recordId||r.id)>=String(prev.recordId||prev.id))byDate.set(r.date,r);
+  }
+  const cleanRows=[...byDate.values()].sort((a,b)=>a.date.localeCompare(b.date));
+
+  let days=0,duty=0,ot=0,travel=0;
+  for(const r of cleanRows){
+    duty+=num(r.dutyHours ?? r.dutyHrs);
+    ot+=num(r.overtimeHours ?? r.otHours ?? r.ot);
+    travel+=num(r.travelHours ?? r.totalTravelHours ?? r.totalTravel);
+    if(r.dutyIn && r.dutyOut)days++;
+  }
+
+  const reportMonth=monthLabelFromKey(month);
+  const generated=new Date().toLocaleString("en-GB");
+
+  const tableRows=cleanRows.length ? cleanRows.map(r=>`
+    <tr>
+      <td>${wordSafe(r.date)}</td><td>${wordSafe(r.travelIn||"—")}</td><td>${wordSafe(r.dutyIn||"—")}</td>
+      <td>${wordSafe(r.dutyOut||"—")}</td><td>${wordSafe(r.travelOut||"—")}</td>
+      <td>${wordSafe(formatDuration(r.amTravelHours ?? r.amTravel))}</td>
+      <td>${wordSafe(formatDuration(r.dutyHours ?? r.dutyHrs))}</td>
+      <td>${wordSafe(formatDuration(r.overtimeHours ?? r.otHours ?? r.ot))}</td>
+      <td>${wordSafe(formatDuration(r.pmTravelHours ?? r.pmTravel))}</td>
+      <td>${wordSafe(formatDuration(r.travelHours ?? r.totalTravelHours ?? r.totalTravel))}</td>
+      <td class="note">${wordSafe(r.note||"")}</td>
+    </tr>`).join("") : `<tr><td colspan="11" style="text-align:center">No attendance records for this month.</td></tr>`;
+
+  const innerReport=`
+<h1>Attendance Tracker</h1>
+<h2>Monthly Attendance Report</h2>
+<table class="previewInfo">
+<tr><td><b>Employee:</b> ${wordSafe(employee.name||"")}</td><td><b>Month:</b> ${wordSafe(reportMonth)}</td></tr>
+<tr><td><b>Position:</b> ${wordSafe(employee.position||employee.role||"")}</td><td><b>Employee ID:</b> ${wordSafe(employee.employeeId||employee.id||"")}</td></tr>
+<tr><td colspan="2"><b>Generated:</b> ${wordSafe(generated)}</td></tr>
+</table>
+<table class="previewSummary" style="margin:10px 0"><tr>
+<td>Days Worked<br>${days}</td><td>Duty Hours<br>${formatDuration(duty)}</td><td>Overtime<br>${formatDuration(ot)}</td><td>Travel Hours<br>${formatDuration(travel)}</td>
+</tr></table>
+<table class="previewAtt"><thead><tr>
+<th>Date</th><th>Travel Start</th><th>Duty In</th><th>Duty Out</th><th>Travel Stop</th><th>AM Travel</th><th>Duty</th><th>OT</th><th>PM Travel</th><th>Total Travel</th><th>Note</th>
+</tr></thead><tbody>${tableRows}</tbody></table>
+<table style="margin-top:28px;width:100%"><tr>
+<td style="width:50%;padding-top:30px;text-align:center">_________________________<br>Employee Signature</td>
+<td style="width:50%;padding-top:30px;text-align:center">_________________________<br>Verified By</td>
+</tr></table>`;
+
+  const docHtml=`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+@page{size:A4 portrait;margin:12mm}body{font-family:Arial,sans-serif;font-size:9pt;color:#111}h1{font-size:16pt;margin:0 0 4px}h2{font-size:11pt;margin:0 0 12px;color:#444}table{width:100%;border-collapse:collapse}.previewInfo td{padding:3px 5px}.previewSummary{margin:10px 0}.previewSummary td{border:1px solid #777;padding:6px;text-align:center;font-weight:bold}.previewAtt{font-size:7.5pt}.previewAtt th,.previewAtt td{border:1px solid #777;padding:4px;text-align:center;vertical-align:middle}.previewAtt th{background:#e9ecef}.previewAtt .note{text-align:left}
+</style></head><body>${innerReport}</body></html>`;
+
+  const safeName=String(employee.name||"Employee").replace(/[\\/:*?"<>|]+/g,"_");
+  return {previewHtml:innerReport,docHtml,fileName:`Attendance_${safeName}_${month}.doc`,reportMonth};
+}
+
+$("previewWordBtn").addEventListener("click",async()=>{
+  $("wordPreviewMessage").textContent="";
+  $("wordPreviewBody").innerHTML='<div style="padding:20px;text-align:center">Preparing preview…</div>';
+  $("wordPreviewModal").classList.add("show");
+  try{
+    const report=await buildMonthlyWordReport();
+    if(!report){$("wordPreviewBody").innerHTML='<div style="padding:20px;text-align:center">Select an employee and month first.</div>';return;}
+    currentWordReportHtml=report.docHtml;currentWordReportFileName=report.fileName;
+    $("wordPreviewSub").textContent=`${report.reportMonth} • Review before download`;
+    $("wordPreviewBody").innerHTML=report.previewHtml;
+  }catch(err){console.error(err);$("wordPreviewBody").innerHTML='<div style="padding:20px;text-align:center">Unable to prepare report preview.</div>';$("wordPreviewMessage").textContent="Check Firestore connection/permissions.";}
+});
+
+$("closeWordPreviewBtn").addEventListener("click",()=>$("wordPreviewModal").classList.remove("show"));
+$("downloadWordBtn").addEventListener("click",()=>{
+  if(!currentWordReportHtml || !currentWordReportFileName){$("wordPreviewMessage").textContent="Preview the report first.";return;}
+  saveWordFile(currentWordReportFileName,currentWordReportHtml);
+  $("wordPreviewMessage").textContent="Word report downloaded ✓";
+  setSync("Word report downloaded ✓");
+});
+
 $("logoutBtn").addEventListener("click",()=>signOut(auth));
 
 $("employeeSelect").addEventListener("change",async e=>{
   selectedUid=e.target.value;
   $("editEmployeeBtn").disabled=!selectedUid;
+  $("previewWordBtn").disabled=!selectedUid;
   $("noticeEmployeeBtn").disabled=!selectedUid;
   $("clearNoticeBtn").disabled=!selectedUid;
   $("deleteEmployeeBtn").disabled=!selectedUid;
@@ -871,6 +1062,8 @@ $("saveEditBtn").addEventListener("click",async()=>{
 window.addEventListener("online",()=>setSync("Online"));
 window.addEventListener("offline",()=>setSync("Offline",true));
 
+
+setInterval(()=>{ if(selectedUid) refreshNoticeReceipt(); },10000);
 
 onAuthStateChanged(auth,async user=>{
   if(!user) {
