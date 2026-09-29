@@ -286,7 +286,7 @@ th{background:#101827;color:#94a3b8;font-size:10px;text-transform:uppercase;lett
     </div>
     <div class="tableWrap">
       <table>
-        <thead><tr><th>Shift Date</th><th>Punch Type</th><th>Current</th><th>Requested</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
+        <thead><tr><th>Employee / Shift Date</th><th>Punch Type</th><th>Current</th><th>Requested</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
         <tbody id="missedPunchRequestsBody"><tr><td colspan="7" class="empty">Select an employee.</td></tr></tbody>
       </table>
     </div>
@@ -410,7 +410,7 @@ import {
   getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import {
-  getFirestore, collection, getDocs, doc, getDoc, updateDoc, deleteDoc, writeBatch, setDoc, serverTimestamp
+  getFirestore, collection, collectionGroup, getDocs, doc, getDoc, updateDoc, deleteDoc, writeBatch, setDoc, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
 const firebaseConfig = {"apiKey": "AIzaSyDduEjD_JoDprJIO375gWSzR4iY6LpTonU", "authDomain": "traxer-650ff.firebaseapp.com", "projectId": "traxer-650ff", "storageBucket": "traxer-650ff.firebasestorage.app", "messagingSenderId": "666299472568", "appId": "1:666299472568:web:324464e3016d49ec5d324d", "measurementId": "G-39PFKTS7TT"};
@@ -613,25 +613,37 @@ function punchDisplay(v){
   let h=Number(m[1]), min=m[2], ap=h>=12?'PM':'AM'; h=h%12||12;
   return `${h}:${min} ${ap}`;
 }
-async function loadMissedPunchRequestsAdmin(uid){
+async function loadMissedPunchRequestsAdmin(){
   const body=$("missedPunchRequestsBody"); if(!body)return;
   body.innerHTML='<tr><td colspan="7" class="empty">Loading requests…</td></tr>';
   try{
-    const snap=await getDocs(collection(db,'employees',uid,'missedPunchRequests'));
-    const rows=[]; snap.forEach(d=>rows.push({id:d.id,...d.data()}));
-    rows.sort((a,b)=>String(b.shiftDate||'').localeCompare(String(a.shiftDate||'')) || String(b.id).localeCompare(String(a.id)));
+    const snap=await getDocs(collectionGroup(db,'missedPunchRequests'));
+    const rows=[];
+    snap.forEach(d=>{
+      const x=d.data()||{};
+      const employeeUid=x.employeeUid || d.ref.parent.parent?.id || '';
+      rows.push({id:d.id,employeeUid,...x});
+    });
+    rows.sort((a,b)=>{
+      const ap=String(a.status||'Pending')==='Pending'?0:1, bp=String(b.status||'Pending')==='Pending'?0:1;
+      return ap-bp || String(b.shiftDate||'').localeCompare(String(a.shiftDate||'')) || String(b.id).localeCompare(String(a.id));
+    });
     if(!rows.length){body.innerHTML='<tr><td colspan="7" class="empty">No missed punch requests.</td></tr>';return;}
     body.innerHTML=rows.map(r=>{
       const pending=String(r.status||'Pending')==='Pending';
+      const emp=employees.get(r.employeeUid)||{};
+      const empName=r.employeeName||emp.name||'Unknown employee';
+      const empId=r.employeeId||emp.employeeId||'';
       return `<tr>
-        <td>${esc(r.shiftDate||'-')}</td><td>${esc(punchTypeLabel(r.punchType))}</td>
+        <td><b>${esc(empName)}</b>${empId?`<br><span class="muted">${esc(empId)}</span>`:''}<br>${esc(r.shiftDate||'-')}</td>
+        <td>${esc(punchTypeLabel(r.punchType))}</td>
         <td>${esc(punchDisplay(r.originalTime))}</td><td><b>${esc(punchDisplay(r.requestedTime))}</b></td>
         <td>${esc(r.reason||'-')}</td><td>${esc(r.status||'Pending')}</td>
-        <td>${pending?`<button class="btn primary" data-mp-approve="${esc(r.id)}">Approve</button> <button class="btn danger" data-mp-reject="${esc(r.id)}">Reject</button>`:'—'}</td>
+        <td>${pending?`<button class="btn primary" data-mp-approve="${esc(r.id)}" data-mp-uid="${esc(r.employeeUid)}">Approve</button> <button class="btn danger" data-mp-reject="${esc(r.id)}" data-mp-uid="${esc(r.employeeUid)}">Reject</button>`:'—'}</td>
       </tr>`;
     }).join('');
-    body.querySelectorAll('[data-mp-approve]').forEach(b=>b.onclick=()=>approveMissedPunch(b.dataset.mpApprove));
-    body.querySelectorAll('[data-mp-reject]').forEach(b=>b.onclick=()=>rejectMissedPunch(b.dataset.mpReject));
+    body.querySelectorAll('[data-mp-approve]').forEach(b=>b.onclick=()=>approveMissedPunch(b.dataset.mpUid,b.dataset.mpApprove));
+    body.querySelectorAll('[data-mp-reject]').forEach(b=>b.onclick=()=>rejectMissedPunch(b.dataset.mpUid,b.dataset.mpReject));
   }catch(err){console.error(err);body.innerHTML='<tr><td colspan="7" class="empty">Unable to load requests. Check Firestore rules.</td></tr>';}
 }
 function durationHours(start,end){
@@ -639,14 +651,14 @@ function durationHours(start,end){
   if(!Number.isFinite(a.getTime())||!Number.isFinite(b.getTime()))return 0;
   return Math.max(0,(b-a)/3600000);
 }
-async function approveMissedPunch(requestId){
-  if(!selectedUid)return;
-  const reqRef=doc(db,'employees',selectedUid,'missedPunchRequests',requestId);
+async function approveMissedPunch(employeeUid,requestId){
+  if(!employeeUid)return;
+  const reqRef=doc(db,'employees',employeeUid,'missedPunchRequests',requestId);
   const reqSnap=await getDoc(reqRef); if(!reqSnap.exists())return alert('Request no longer exists.');
   const r=reqSnap.data()||{}; if(String(r.status||'Pending')!=='Pending')return alert('This request was already processed.');
   if(!confirm(`Approve ${punchTypeLabel(r.punchType)} correction for ${r.shiftDate}?\n\n${punchDisplay(r.originalTime)} → ${punchDisplay(r.requestedTime)}`))return;
   try{
-    const attSnap=await getDocs(collection(db,'employees',selectedUid,'attendance'));
+    const attSnap=await getDocs(collection(db,'employees',employeeUid,'attendance'));
     let target=null;
     attSnap.forEach(d=>{const x=d.data()||{}; if(!target && String(x.date||'')===String(r.shiftDate||'') && String(x.status||'').toLowerCase()!=='reset' && !x.resetAt) target={id:d.id,...x};});
     if(!target){target={id:`${r.shiftDate}-admin-correction`,recordId:`${r.shiftDate}-admin-correction`,date:r.shiftDate,travelIn:null,dutyIn:null,dutyOut:null,travelOut:null,note:'',status:'Incomplete'};}
@@ -662,21 +674,22 @@ async function approveMissedPunch(requestId){
       amTravelHours:am,dutyHours:duty,overtimeHours:Math.max(0,duty-9),pmTravelHours:pm,travelHours:am+pm,
       note:target.note||'',status:(target.dutyIn&&target.dutyOut)?'Complete':'Incomplete',updatedAt:serverTimestamp()
     };
-    await setDoc(doc(db,'employees',selectedUid,'attendance',target.id),payload,{merge:true});
+    await setDoc(doc(db,'employees',employeeUid,'attendance',target.id),payload,{merge:true});
     await updateDoc(reqRef,{status:'Approved',approvedAt:serverTimestamp(),approvedBy:auth.currentUser?.uid||'',appliedRecordId:target.id});
-    await loadMissedPunchRequestsAdmin(selectedUid); await loadAttendance(selectedUid,$('monthSelect').value);
+    await loadMissedPunchRequestsAdmin(); if(selectedUid===employeeUid) await loadAttendance(selectedUid,$('monthSelect').value);
   }catch(err){console.error(err);alert('Approval failed. Check Firestore rules/connection.');}
 }
-async function rejectMissedPunch(requestId){
-  if(!selectedUid)return;
+async function rejectMissedPunch(employeeUid,requestId){
+  if(!employeeUid)return;
   const reason=prompt('Optional rejection remark:','') ?? null; if(reason===null)return;
   try{
-    await updateDoc(doc(db,'employees',selectedUid,'missedPunchRequests',requestId),{status:'Rejected',adminRemark:reason,rejectedAt:serverTimestamp(),rejectedBy:auth.currentUser?.uid||''});
-    await loadMissedPunchRequestsAdmin(selectedUid);
+    await updateDoc(doc(db,'employees',employeeUid,'missedPunchRequests',requestId),{status:'Rejected',adminRemark:reason,rejectedAt:serverTimestamp(),rejectedBy:auth.currentUser?.uid||''});
+    await loadMissedPunchRequestsAdmin();
   }catch(err){console.error(err);alert('Reject failed. Check Firestore rules/connection.');}
 }
 
 async function renderSelectedEmployee() {
+  await loadMissedPunchRequestsAdmin();
   const e=employees.get(selectedUid);
   if(!e) { clearEmployee(); return; }
 
@@ -694,7 +707,7 @@ async function renderSelectedEmployee() {
     return;
   }
 
-  await loadMissedPunchRequestsAdmin(selectedUid);
+  await loadMissedPunchRequestsAdmin();
   await loadAttendance(selectedUid,$("monthSelect").value);
 }
 
